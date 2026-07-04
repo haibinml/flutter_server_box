@@ -11,7 +11,39 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.44.4'
+
 jobs:
+  reproducibilityCheck:
+    name: Reproducibility check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Check locked dependencies
+        env:
+          PUB_HOSTED_URL: https://pub.dev
+        run: |
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.yaml pubspec.lock
+
+      - name: Check JNI build-id patch
+        run: scripts/release/patch-jni-build-id.sh
+
   check:
     runs-on: ubuntu-latest
 
@@ -20,11 +52,12 @@ jobs:
         with:
           fetch-depth: 1
           submodules: recursive
+          persist-credentials: false
       
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          # flutter-version: '3.44.1'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
       - name: Install dependencies
         run: flutter pub get
