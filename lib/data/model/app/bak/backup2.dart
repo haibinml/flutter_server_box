@@ -4,6 +4,11 @@ import 'dart:io';
 import 'package:fl_lib/fl_lib.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:logging/logging.dart';
+import 'package:server_box/data/model/server/custom.dart';
+import 'package:server_box/data/model/server/private_key_info.dart';
+import 'package:server_box/data/model/server/server_private_info.dart';
+import 'package:server_box/data/model/server/snippet.dart';
+import 'package:server_box/data/model/server/wol_cfg.dart';
 import 'package:server_box/data/provider/private_key.dart';
 import 'package:server_box/data/provider/server/all.dart';
 import 'package:server_box/data/provider/snippet.dart';
@@ -41,11 +46,15 @@ abstract class BackupV2 with _$BackupV2 implements Mergeable {
     required Map<String, Object?> settings,
   }) = _BackupV2;
 
-  factory BackupV2.fromJson(Map<String, dynamic> json) =>
-      _$BackupV2FromJson(json);
+  factory BackupV2.fromJson(Map<String, dynamic> json) {
+    final backup = _$BackupV2FromJson(json);
+    backup._validateRestorableTypedStores();
+    return backup;
+  }
 
   @override
   Future<void> merge({bool force = false}) async {
+    _validateRestorableTypedStores();
     _loggerV2.info('Merging...');
 
     final results = await Future.wait([
@@ -59,11 +68,7 @@ abstract class BackupV2 with _$BackupV2 implements Mergeable {
         store: Stores.snippet,
         force: force,
       ),
-      Mergeable.mergeStore(
-        backupData: keys,
-        store: Stores.key,
-        force: force,
-      ),
+      Mergeable.mergeStore(backupData: keys, store: Stores.key, force: force),
       Mergeable.mergeStore(
         backupData: container,
         store: Stores.container,
@@ -114,7 +119,7 @@ abstract class BackupV2 with _$BackupV2 implements Mergeable {
     bool includeSettings = true,
   ]) async {
     final bak = await BackupV2.loadFromStore(includeSettings: includeSettings);
-    var result = json.encode(bak.toJson(), toEncodable: _toEncodable);
+    var result = bak.toJsonString();
 
     if (password != null && password.isNotEmpty) {
       result = Cryptor.encrypt(result, password);
@@ -136,11 +141,65 @@ abstract class BackupV2 with _$BackupV2 implements Mergeable {
     final map = json.decode(jsonString) as Map<String, dynamic>;
     return BackupV2.fromJson(map);
   }
+
+  String toJsonString() => json.encode(_toJsonValue(toJson()));
+
+  void _validateRestorableTypedStores() {
+    _validateRestorableStore('spis', spis);
+    _validateRestorableStore('snippets', snippets);
+    _validateRestorableStore('keys', keys);
+  }
 }
 
 Object? _toEncodable(Object? value) {
   if (value is Enum) return value.name;
-  _loggerV2.warning('Non-JSON-encodable type: ${value.runtimeType}, '
-      'serialized via toString() and may not be deserializable');
-  return value.toString();
+
+  return switch (value) {
+    final Spi spi => spi.toJson(),
+    final Snippet snippet => snippet.toJson(),
+    final PrivateKeyInfo key => key.toJson(),
+    final ServerCustom custom => custom.toJson(),
+    final WakeOnLanCfg wolCfg => wolCfg.toJson(),
+    _ => throw UnsupportedError(
+      'Cannot JSON-encode ${value.runtimeType}: missing supported toJson()',
+    ),
+  };
 }
+
+Object? _toJsonValue(Object? value) {
+  if (value == null || value is num || value is bool || value is String) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map((key, entryValue) {
+      if (key is! String) {
+        throw UnsupportedError(
+          'Cannot JSON-encode map key ${key.runtimeType}: keys must be String',
+        );
+      }
+      return MapEntry(key, _toJsonValue(entryValue));
+    });
+  }
+  if (value is Iterable) {
+    return value.map(_toJsonValue).toList(growable: false);
+  }
+  return _toJsonValue(_toEncodable(value));
+}
+
+void _validateRestorableStore(String storeName, Map<String, Object?> data) {
+  for (final entry in data.entries) {
+    if (_isInternalStoreKey(entry.key) || entry.value == null) continue;
+    if (entry.value is Map) continue;
+
+    throw FormatException(
+      'Backup contains corrupted $storeName entry "${entry.key}": '
+      'expected JSON object, got ${entry.value.runtimeType}. '
+      'Backups created by app versions 1.0.1448-1.0.1450 may be affected '
+      'and cannot be fully restored.',
+    );
+  }
+}
+
+bool _isInternalStoreKey(String key) =>
+    key.startsWith(StoreDefaults.prefixKey) ||
+    key.startsWith(StoreDefaults.prefixKeyOld);
