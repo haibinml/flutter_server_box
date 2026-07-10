@@ -1,14 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:server_box/data/model/container/ps.dart';
 import 'package:server_box/data/model/container/status.dart';
+import 'package:server_box/data/model/container/type.dart';
+import 'package:server_box/data/provider/container.dart';
 
 void main() {
   test('docker ps parse', () {
     const raw = '''
-CONTAINER ID    STATUS                         NAMES                                              IMAGE                                              
-0e9e2ef860d2    Up 2 hours                     hbbs                                               rustdesk/rustdesk-server:latest                    
-9a4df3ed340c    Up 41 minutes                  hbbr                                               rustdesk/rustdesk-server:latest                    
-fa1215b4be74    Up 12 hours                    firefly                                            uusec/firefly:latest
+CONTAINER ID\tSTATUS\tNAMES\tIMAGE
+0e9e2ef860d2\tUp 2 hours\thbbs\trustdesk/rustdesk-server:latest
+9a4df3ed340c\tUp 41 minutes\thbbr\trustdesk/rustdesk-server:latest
+fa1215b4be74\tUp 12 hours\tfirefly\tuusec/firefly:latest
 ''';
     final lines = raw.split('\n');
     const ids = ['0e9e2ef860d2', '9a4df3ed340c', 'fa1215b4be74'];
@@ -30,6 +32,39 @@ fa1215b4be74    Up 12 hours                    firefly                          
       expect(ps.status, ContainerStatus.running);
       expect(ps.status.isRunning, true);
     }
+  });
+
+  test('docker ps parse handles long swarm container names', () {
+    const name =
+        'apps-all-stack_komari-agent.zdngp1z1t23llz9l30s86tq3g.fjmkg9amn0u76tbln96mmzlq2';
+    const image = 'registry.example.com/team/komari-agent:2026.07.10';
+    final ps = DockerPs.parse('0e9e2ef860d2\tUp 2 hours\t$name\t$image');
+
+    expect(name.length, greaterThan(50));
+    expect(ps.id, '0e9e2ef860d2');
+    expect(ps.state, 'Up 2 hours');
+    expect(ps.names, name);
+    expect(ps.image, image);
+  });
+
+  test('docker ps parse reports malformed rows', () {
+    expect(
+      () => DockerPs.parse('0e9e2ef860d2\tUp 2 hours\thbbs'),
+      throwsA(
+        isA<FormatException>()
+            .having((e) => e.message, 'message', contains('Docker ps row'))
+            .having((e) => e.message, 'message', contains('expected 4')),
+      ),
+    );
+  });
+
+  test('docker ps command uses human-readable status', () {
+    final cmd = ContainerCmdType.ps.exec(ContainerType.docker);
+
+    expect(
+      cmd,
+      'docker ps -a --format "{{.ID}}\\t{{.Status}}\\t{{.Names}}\\t{{.Image}}"',
+    );
   });
 
   test('docker ps status detection', () {

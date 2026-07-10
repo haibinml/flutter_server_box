@@ -286,9 +286,14 @@ class ContainerNotifier extends _$ContainerNotifier {
         if (headerIdx != -1) lines.removeAt(headerIdx);
       }
       lines.removeWhere((element) => element.isEmpty);
-      final items = lines
-          .map((e) => ContainerPs.fromRaw(e, type))
-          .toList();
+      final items = <ContainerPs>[];
+      for (final line in lines) {
+        try {
+          items.add(ContainerPs.fromRaw(line, type));
+        } on FormatException catch (e, trace) {
+          Loggers.app.warning('Skip malformed container ps row', e, trace);
+        }
+      }
       state = state.copyWith(items: items);
     } catch (e, trace) {
       if (state.error == null) {
@@ -487,14 +492,8 @@ enum ContainerCmdType {
     final baseCmd = switch (this) {
       ContainerCmdType.version => '${type.name} version $_jsonFmt',
       ContainerCmdType.ps => switch (type) {
-        /// TODO: Rollback to json format when performance recovers.
-        /// Use [_jsonFmt] in Docker will cause the operation to slow down.
         ContainerType.docker =>
-          '${type.name} ps -a --format "table {{printf \\"'
-              '%-15.15s '
-              '%-30.30s '
-              '${"%-50.50s " * 2}\\"'
-              ' .ID .Status .Names .Image}}"',
+          '${type.name} ps -a --format "{{.ID}}\\t{{.Status}}\\t{{.Names}}\\t{{.Image}}"',
         ContainerType.podman => '${type.name} ps -a $_jsonFmt',
       },
       ContainerCmdType.stats =>
