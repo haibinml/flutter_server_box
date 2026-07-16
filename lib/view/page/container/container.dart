@@ -392,8 +392,11 @@ class _ContainerPageState extends ConsumerState<ContainerPage> {
   ) {
     final String title;
     switch (item) {
-      case _SettingsMenuItems.editDockerHost:
-        title = '${libL10n.edit} DOCKER_HOST';
+      case _SettingsMenuItems.editContainerHost:
+        final hostVariable = containerState.type == ContainerType.podman
+            ? 'CONTAINER_HOST'
+            : 'DOCKER_HOST';
+        title = '${libL10n.edit} $hostVariable';
         break;
       case _SettingsMenuItems.switchProvider:
         title = containerState.type == ContainerType.podman
@@ -404,7 +407,7 @@ class _ContainerPageState extends ConsumerState<ContainerPage> {
     return ListTile(
       onTap: () {
         switch (item) {
-          case _SettingsMenuItems.editDockerHost:
+          case _SettingsMenuItems.editContainerHost:
             _showEditHostDialog();
             break;
           case _SettingsMenuItems.switchProvider:

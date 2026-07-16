@@ -13,7 +13,9 @@ extension on _ContainerPageState {
   }
 
   /// Execute a container action with loading dialog and error handling.
-  Future<void> _execContainerAction(Future<ContainerErr?> Function() action) async {
+  Future<void> _execContainerAction(
+    Future<ContainerErr?> Function() action,
+  ) async {
     final (result, err) = await context.showLoadingDialog(fn: action);
     if (!mounted) return;
     if (err != null || result != null) {
@@ -115,24 +117,29 @@ extension on _ContainerPageState {
 
   Future<void> _showEditHostDialog() async {
     final id = widget.args.spi.id;
-    final host = Stores.container.fetch(id);
+    final host = Stores.container.fetch(id, _containerState.type);
+    final hostVariable = _containerState.type == ContainerType.podman
+        ? 'CONTAINER_HOST'
+        : 'DOCKER_HOST';
     final ctrl = TextEditingController(text: host);
     await context.showRoundDialog(
       title: libL10n.edit,
       child: Input(
         maxLines: 2,
         controller: ctrl,
-        onSubmitted: _onSaveDockerHost,
-        hint: 'unix:///run/user/1000/docker.sock',
+        onSubmitted: _onSaveContainerHost,
+        hint: hostVariable == 'CONTAINER_HOST'
+            ? r'$XDG_RUNTIME_DIR/podman/podman.sock'
+            : 'unix:///run/user/1000/docker.sock',
         suggestion: false,
       ),
-      actions: Btn.ok(onTap: () => _onSaveDockerHost(ctrl.text)).toList,
+      actions: Btn.ok(onTap: () => _onSaveContainerHost(ctrl.text)).toList,
     );
   }
 
-  void _onSaveDockerHost(String val) {
+  void _onSaveContainerHost(String val) {
     context.pop();
-    Stores.container.put(widget.args.spi.id, val.trim());
+    Stores.container.put(widget.args.spi.id, _containerState.type, val.trim());
     _containerNotifier.resetSudoProbe();
     _containerNotifier.refresh();
   }
@@ -230,7 +237,9 @@ extension on _ContainerPageState {
           actions: Btn.ok(
             onTap: () async {
               context.pop();
-              await _execContainerAction(() => _containerNotifier.delete(id, force));
+              await _execContainerAction(
+                () => _containerNotifier.delete(id, force),
+              );
             },
           ).toList,
         );
